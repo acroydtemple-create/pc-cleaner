@@ -1,0 +1,7 @@
+customtkinter>=5.2
+Pillow>=10
+psutil>=5.9
+send2trash>=1.8
+imageio-ffmpeg>=0.4
+# 下面仅打包时需要
+pyinstaller>=6

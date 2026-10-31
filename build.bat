@@ -5,6 +5,8 @@ pip install -r requirements.txt
 echo 正在打包单文件 exe ...
 pyinstaller --noconfirm --onefile --windowed ^
   --name DeepClean ^
+  --icon assets/icon.ico ^
+  --add-data "assets/logo.png;assets" ^
   --collect-all customtkinter ^
   --collect-all imageio_ffmpeg ^
   src\main.py

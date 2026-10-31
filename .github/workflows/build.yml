@@ -20,7 +20,7 @@ jobs:
       - name: PyInstaller onefile
         run: >
           pyinstaller --noconfirm --onefile --windowed
-          --name "深度清理工具"
+          --name DeepClean
           --collect-all customtkinter
           --collect-all imageio_ffmpeg
           src/main.py

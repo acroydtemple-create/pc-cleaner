@@ -4,7 +4,7 @@ echo 正在安装依赖...
 pip install -r requirements.txt
 echo 正在打包单文件 exe ...
 pyinstaller --noconfirm --onefile --windowed ^
-  --name "深度清理工具" ^
+  --name DeepClean ^
   --collect-all customtkinter ^
   --collect-all imageio_ffmpeg ^
   src\main.py

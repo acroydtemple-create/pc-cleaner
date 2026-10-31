@@ -636,9 +636,15 @@ class App(ctk.CTk):
 
     def _poll_queue(self):
         try:
+            media_budget = 8  # 每 tick 最多摆 8 张卡片，剩下的下轮继续，界面不卡死
             while True:
                 msg = self.q.get_nowait()
                 kind = msg[0]
+                if kind in ("img_cell", "vid_cell"):
+                    if media_budget <= 0:
+                        self.q.put(msg)  # 放回队尾，下 tick 继续
+                        break
+                    media_budget -= 1
                 if kind == "scan_prog":
                     _n, p = msg[1], msg[2]
                     now = time.time()

@@ -68,7 +68,10 @@ def _ffmpeg_exe():
 def _popen_kwargs():
     """Windows 下隐藏子进程黑窗口（ffmpeg 抽帧时不再闪黑窗）"""
     if os.name == "nt":
-        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+                "startupinfo": si}
     return {}
 
 

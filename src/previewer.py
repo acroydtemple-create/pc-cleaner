@@ -65,6 +65,13 @@ def _ffmpeg_exe():
         return None
 
 
+def _popen_kwargs():
+    """Windows 下隐藏子进程黑窗口（ffmpeg 抽帧时不再闪黑窗）"""
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+    return {}
+
+
 def video_cover(path, size=(320, 180)):
     """抽一帧做视频封面，返回 PIL.Image，失败返回 None"""
     ck = os.path.join(_CACHE_DIR, "v_" + _cache_key(path, size))
@@ -84,7 +91,7 @@ def video_cover(path, size=(320, 180)):
             try:
                 subprocess.run(cmd, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, timeout=30,
-                               check=False)
+                               check=False, **_popen_kwargs())
             except Exception:
                 continue
             if os.path.isfile(ck) and os.path.getsize(ck) > 0:

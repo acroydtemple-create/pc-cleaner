@@ -3,6 +3,7 @@
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox
 
@@ -47,6 +48,9 @@ class App(ctk.CTk):
         self._img_cursor = 0
         self._vid_cursor = 0
         self._busy = False
+        self._media_stop = threading.Event()
+        self._scan_cancel = None
+        self._last_prog_ui = 0
 
         self._build_sidebar()
         self._build_main()
@@ -75,6 +79,7 @@ class App(ctk.CTk):
         for txt, cmd in [
             ("🔄 刷新磁盘", self.refresh_drives),
             ("🔍 开始扫盘", self.start_scan),
+            ("⏹ 停止扫描", self.stop_scan),
             ("🧪 扫描垃圾", self.start_junk_scan),
         ]:
             ctk.CTkButton(sb, text=txt, command=cmd).pack(fill="x", padx=16, pady=4)
@@ -333,6 +338,8 @@ class App(ctk.CTk):
         self.vid_grid.pack(fill="both", expand=True, padx=8, pady=4)
 
     def _fill_media(self):
+        # 停掉上一轮的后台加载，避免旧任务继续往界面塞东西
+        self._media_stop.set()
         for w in self._img_widgets + self._vid_widgets:
             w.destroy()
         self._img_widgets.clear()
@@ -340,73 +347,72 @@ class App(ctk.CTk):
         self.img_items = sorted(self.scan_result["images"], key=lambda x: -x["size"])
         self.vid_items = sorted(self.scan_result["videos"], key=lambda x: -x["size"])
         self.img_tip.configure(
-            text=f"共 {len(self.img_items)} 张图片（按体积排序），点开放大")
+            text=f"共 {len(self.img_items)} 张图片（按体积排序），缩略图后台加载中…")
         self.vid_tip.configure(
-            text=f"共 {len(self.vid_items)} 个视频（按体积排序），双击用系统播放器打开")
-        self._img_cursor = 0
-        self._vid_cursor = 0
-        self._load_img_batch()
-        self._load_vid_batch()
+            text=f"共 {len(self.vid_items)} 个视频（按体积排序），封面后台加载中…")
+        self._media_stop = threading.Event()
+        threading.Thread(target=self._media_worker, daemon=True).start()
 
-    def _load_img_batch(self, batch=48):
-        items = self.img_items[self._img_cursor:self._img_cursor + batch]
-        if not items:
-            return
-        cols = 4
-        for i, it in enumerate(items):
-            idx = self._img_cursor + i
+    def _media_worker(self):
+        """后台生成缩略图/封面，主线程只负责摆 widget，界面不再卡死"""
+        stop = self._media_stop
+        for idx, it in enumerate(self.img_items):
+            if stop.is_set():
+                return
+            while self.q.qsize() > 150 and not stop.is_set():
+                time.sleep(0.05)
             th = previewer.image_thumbnail(it["path"])
-            cell = ctk.CTkFrame(self.img_grid, fg_color="transparent",
-                                width=200, height=230)
-            cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
-            cell.grid_propagate(False)
-            if th:
-                img = ctk.CTkImage(light_image=th, dark_image=th, size=(180, 180))
-                lbl = ctk.CTkLabel(cell, image=img, text="")
-                lbl.image = img
-            else:
-                lbl = ctk.CTkLabel(cell, text="🖼️\n无法预览", height=180)
-            lbl.pack()
-            lbl.bind("<Button-1>", lambda e, it=it: self._preview_image(it))
-            name = os.path.basename(it["path"])
-            ctk.CTkLabel(cell, text=_short(name, 24),
-                         font=ctk.CTkFont(size=11)).pack()
-            ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
-                         font=ctk.CTkFont(size=11), text_color="gray").pack()
-            self._img_widgets.append(cell)
-        self._img_cursor += len(items)
-        if self._img_cursor < len(self.img_items):
-            self.after(300, self._load_img_batch)
-
-    def _load_vid_batch(self, batch=24):
-        items = self.vid_items[self._vid_cursor:self._vid_cursor + batch]
-        if not items:
-            return
-        cols = 3
-        for i, it in enumerate(items):
-            idx = self._vid_cursor + i
+            self.q.put(("img_cell", idx, th, it))
+        for idx, it in enumerate(self.vid_items):
+            if stop.is_set():
+                return
+            while self.q.qsize() > 150 and not stop.is_set():
+                time.sleep(0.05)
             cv = previewer.video_cover(it["path"])
-            cell = ctk.CTkFrame(self.vid_grid, fg_color="transparent",
-                                width=300, height=250)
-            cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
-            cell.grid_propagate(False)
-            if cv:
-                img = ctk.CTkImage(light_image=cv, dark_image=cv, size=(280, 158))
-                lbl = ctk.CTkLabel(cell, image=img, text="")
-                lbl.image = img
-            else:
-                lbl = ctk.CTkLabel(cell, text="🎬\n封面提取失败", height=158)
-            lbl.pack()
-            lbl.bind("<Double-Button-1>", lambda e, it=it: self._play_video(it))
-            name = os.path.basename(it["path"])
-            ctk.CTkLabel(cell, text=_short(name, 34),
-                         font=ctk.CTkFont(size=11)).pack()
-            ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
-                         font=ctk.CTkFont(size=11), text_color="gray").pack()
-            self._vid_widgets.append(cell)
-        self._vid_cursor += len(items)
-        if self._vid_cursor < len(self.vid_items):
-            self.after(500, self._load_vid_batch)
+            self.q.put(("vid_cell", idx, cv, it))
+        self.q.put(("media_done", None))
+
+    def _add_img_cell(self, idx, th, it):
+        cols = 4
+        cell = ctk.CTkFrame(self.img_grid, fg_color="transparent",
+                            width=200, height=230)
+        cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
+        cell.grid_propagate(False)
+        if th:
+            img = ctk.CTkImage(light_image=th, dark_image=th, size=(180, 180))
+            lbl = ctk.CTkLabel(cell, image=img, text="")
+            lbl.image = img
+        else:
+            lbl = ctk.CTkLabel(cell, text="🖼️\n无法预览", height=180)
+        lbl.pack()
+        lbl.bind("<Button-1>", lambda e, it=it: self._preview_image(it))
+        name = os.path.basename(it["path"])
+        ctk.CTkLabel(cell, text=_short(name, 24),
+                     font=ctk.CTkFont(size=11)).pack()
+        ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
+                     font=ctk.CTkFont(size=11), text_color="gray").pack()
+        self._img_widgets.append(cell)
+
+    def _add_vid_cell(self, idx, cv, it):
+        cols = 3
+        cell = ctk.CTkFrame(self.vid_grid, fg_color="transparent",
+                            width=300, height=250)
+        cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
+        cell.grid_propagate(False)
+        if cv:
+            img = ctk.CTkImage(light_image=cv, dark_image=cv, size=(280, 158))
+            lbl = ctk.CTkLabel(cell, image=img, text="")
+            lbl.image = img
+        else:
+            lbl = ctk.CTkLabel(cell, text="🎬\n封面提取失败", height=158)
+        lbl.pack()
+        lbl.bind("<Double-Button-1>", lambda e, it=it: self._play_video(it))
+        name = os.path.basename(it["path"])
+        ctk.CTkLabel(cell, text=_short(name, 34),
+                     font=ctk.CTkFont(size=11)).pack()
+        ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
+                     font=ctk.CTkFont(size=11), text_color="gray").pack()
+        self._vid_widgets.append(cell)
 
     def _preview_image(self, it):
         top = ctk.CTkToplevel(self)
@@ -449,6 +455,7 @@ class App(ctk.CTk):
         root = self.selected_drive["path"]
         self._set_busy(True, f"正在扫描 {root} …")
         cancel = threading.Event()
+        self._scan_cancel = cancel
 
         def work():
             try:
@@ -461,6 +468,11 @@ class App(ctk.CTk):
                 self.q.put(("scan_cancel", None))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def stop_scan(self):
+        if self._scan_cancel:
+            self._scan_cancel.set()
+            self.status_label.configure(text="正在停止扫描…")
 
     def start_junk_scan(self):
         if self._busy:
@@ -490,8 +502,21 @@ class App(ctk.CTk):
                 kind = msg[0]
                 if kind == "scan_prog":
                     _n, p = msg[1], msg[2]
-                    self.status_label.configure(text=f"扫描中：{_short(p)}")
+                    now = time.time()
+                    if now - self._last_prog_ui > 0.3:
+                        self._last_prog_ui = now
+                        self.status_label.configure(text=f"扫描中：{_short(p)}")
+                elif kind == "img_cell":
+                    self._add_img_cell(msg[1], msg[2], msg[3])
+                elif kind == "vid_cell":
+                    self._add_vid_cell(msg[1], msg[2], msg[3])
+                elif kind == "media_done":
+                    self.img_tip.configure(
+                        text=f"共 {len(self.img_items)} 张图片（按体积排序），点开放大")
+                    self.vid_tip.configure(
+                        text=f"共 {len(self.vid_items)} 个视频（按体积排序），双击用系统播放器打开")
                 elif kind == "scan_done":
+                    self._scan_cancel = None
                     res = msg[1]
                     self.scan_result = res
                     st = res["stats"]
@@ -504,6 +529,7 @@ class App(ctk.CTk):
                                         f"共 {st['files']} 个文件，{st['dirs']} 个目录，"
                                         f"用时 {st['seconds']} 秒")
                 elif kind == "scan_cancel":
+                    self._scan_cancel = None
                     self._set_busy(False, "扫描已取消")
                 elif kind == "junk_prog":
                     self.status_label.configure(text=msg[1] + "…")

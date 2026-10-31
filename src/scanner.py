@@ -40,6 +40,8 @@ PREVIEW_VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv",
 SKIP_DIR_NAMES = {
     "system volume information", "$recycle.bin", "$recycled", "recycler",
     "config.msi", "$windows.~bt", "$windows.~ws",
+    # WinSxS：几十万个系统组件小文件，扫它又慢又没意义，直接跳过
+    "winsxs",
 }
 
 

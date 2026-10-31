@@ -88,6 +88,7 @@ class App(ctk.CTk):
         self.apps = []
         self.app_vars = []
         self.hiber = {"exists": False, "size": 0, "is_admin": False}
+        self._app_icon_refs = []
 
         self._build_sidebar()
         self._build_main()
@@ -725,6 +726,9 @@ class App(ctk.CTk):
         def work():
             try:
                 apps = deepclean.list_installed_apps()
+                for a in apps[:150]:
+                    exe = deepclean.resolve_app_exe(a)
+                    a["icon"] = deepclean.get_app_icon_bytes(exe) if exe else None
                 self.q.put(("apps_done", apps))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("junk_err", str(e)))
@@ -735,6 +739,7 @@ class App(ctk.CTk):
         self._clear_box(self.app_body)
         self.apps = apps
         self.app_vars.clear()
+        self._app_icon_refs.clear()
         if not apps:
             ctk.CTkLabel(self.app_body, text="没读到已安装软件（可能需要管理员权限）",
                          text_color=MUTED, font=_font(12)).pack(padx=14, pady=8)
@@ -746,6 +751,18 @@ class App(ctk.CTk):
             self.app_vars.append((var, a))
             r = ctk.CTkFrame(self.app_body, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
+            icon_bytes = a.get("icon")
+            if icon_bytes:
+                try:
+                    import io as _io
+                    pil = Image.open(_io.BytesIO(icon_bytes))
+                    ctk_img = ctk.CTkImage(light_image=pil, dark_image=pil,
+                                           size=(30, 30))
+                    self._app_icon_refs.append(ctk_img)
+                    ctk.CTkLabel(r, image=ctk_img, text="").pack(
+                        side="left", padx=(0, 6))
+                except Exception:  # noqa: BLE001
+                    pass
             ctk.CTkCheckBox(r, text="", variable=var, width=26,
                             fg_color=C_RED).pack(side="left")
             t = ctk.CTkFrame(r, fg_color="transparent")

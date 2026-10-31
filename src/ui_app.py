@@ -188,7 +188,7 @@ class App(ctk.CTk):
         self.drives = scanner.list_drives()
         for d in self.drives:
             card = _card(self.drive_box, border_width=2,
-                         border_color="transparent", corner_radius=12)
+                         border_color=CARD_BG, corner_radius=12)
             card.pack(fill="x", pady=4, padx=2)
             pct = (d["used"] / d["total"]) if d["total"] else 0
             top = ctk.CTkFrame(card, fg_color="transparent")
@@ -218,7 +218,7 @@ class App(ctk.CTk):
     def select_drive(self, d):
         self.selected_drive = d
         for dd, card in self.drive_cards:
-            card.configure(border_color=BRAND if dd is d else "transparent")
+            card.configure(border_color=BRAND if dd is d else CARD_BG)
         self._set_space_info()
 
     # ================= 空间分析 =================

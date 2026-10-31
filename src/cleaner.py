@@ -23,6 +23,11 @@ def _log_dir():
     return d
 
 
+def _multi_string(paths):
+    """SHFileOperation 用的双 \\0 结尾多字符串"""
+    return "\x00".join(os.path.abspath(p) for p in paths) + "\x00\x00"
+
+
 def _trash_win(paths):
     """Windows 原生回收站（SHFileOperation，FOF_ALLOWUNDO）"""
     import ctypes
@@ -44,7 +49,7 @@ def _trash_win(paths):
     FOF_SILENT = 0x4
     FOF_NOERRORUI = 0x400
     FOF_NOCONFIRMMKDIR = 0x200
-    buf = "\x00".join(os.path.abspath(p) for p in paths) + "\x00\x00"
+    buf = _multi_string(paths)
     op = SHFILEOPSTRUCT()
     op.wFunc = FO_DELETE
     op.pFrom = buf

@@ -115,8 +115,8 @@ def _iter_rule_files(patterns):
                         yield os.path.join(dirpath, fn)
 
 
-def scan_green(max_files_per_rule=3000):
-    """扫描绿档，返回 [{name, size, count, files:[...]}]"""
+def scan_green():
+    """扫描绿档，返回 [{name, size, count, files:[...]}]（files 不截断，删多少扫多少）"""
     results = []
     for name, patterns in GREEN_RULES:
         size, count, files = 0, 0, []
@@ -127,8 +127,7 @@ def scan_green(max_files_per_rule=3000):
                 continue
             size += sz
             count += 1
-            if len(files) < max_files_per_rule:
-                files.append(fp)
+            files.append(fp)
         if count:
             results.append({"name": name, "size": size, "count": count,
                             "files": files, "tier": "green"})
@@ -137,7 +136,7 @@ def scan_green(max_files_per_rule=3000):
 
 
 # ---------------- 黄档：人工确认 ----------------
-def scan_downloads(max_age_days=90, big_size=200 * 1024 * 1024, cap=2000):
+def scan_downloads(max_age_days=90, big_size=200 * 1024 * 1024):
     """下载目录：超过 max_age_days 未动 或 大于 big_size 的文件"""
     dl = _ev("%USERPROFILE%\\Downloads") if os.name == "nt" else os.path.expanduser("~/Downloads")
     if not os.path.isdir(dl):
@@ -155,12 +154,10 @@ def scan_downloads(max_age_days=90, big_size=200 * 1024 * 1024, cap=2000):
             if age_days >= max_age_days or st.st_size >= big_size:
                 items.append({"path": fp, "size": st.st_size,
                               "mtime": st.st_mtime, "age_days": round(age_days)})
-                if len(items) >= cap:
-                    return sorted(items, key=lambda x: -x["size"])
     return sorted(items, key=lambda x: -x["size"])
 
 
-def scan_old_installers(max_age_days=180, cap=500):
+def scan_old_installers(max_age_days=180):
     """下载目录里放了很久的安装包"""
     dl = _ev("%USERPROFILE%\\Downloads") if os.name == "nt" else os.path.expanduser("~/Downloads")
     if not os.path.isdir(dl):
@@ -179,8 +176,6 @@ def scan_old_installers(max_age_days=180, cap=500):
                 continue
             if (now - st.st_mtime) / 86400 >= max_age_days:
                 items.append({"path": fp, "size": st.st_size, "mtime": st.st_mtime})
-                if len(items) >= cap:
-                    return sorted(items, key=lambda x: -x["size"])
     return sorted(items, key=lambda x: -x["size"])
 
 

@@ -423,8 +423,22 @@ class App(ctk.CTk):
                               command=lambda grp=grp: self._view_files(
                                   "重复文件组", grp["files"])).pack(side="right")
             if len(dups) > 60:
-                ctk.CTkLabel(y, text=f"…还有 {len(dups)-60} 组",
-                             text_color=MUTED, font=_font(11)).pack(padx=24)
+                rgrps = dups[60:]
+                rvar = tk.BooleanVar(value=False)
+                rpaths, rsave = [], 0
+                for grp in rgrps:
+                    _keep, *grest = grp["files"]
+                    rpaths.extend(grest)
+                    rsave += grp["size"] * (len(grp["files"]) - 1)
+                self.yellow_vars.append((rvar, rpaths, rsave))
+                r = ctk.CTkFrame(y, fg_color="transparent")
+                r.pack(fill="x", padx=12, pady=2)
+                ctk.CTkCheckBox(r, text="", variable=rvar, width=26,
+                                fg_color=BRAND).pack(side="left")
+                ctk.CTkLabel(
+                    r, text=f"…还有 {len(rgrps)} 组（全选剩余，约 {scanner.fmt_size(rsave)}）",
+                    font=_font(12), text_color=MUTED,
+                    anchor="w").pack(side="left", fill="x", expand=True)
         if not ycount:
             ctk.CTkLabel(y, text="没有需要确认的项 👏",
                          text_color=MUTED).pack(padx=24, pady=6)
@@ -453,8 +467,19 @@ class App(ctk.CTk):
             ctk.CTkLabel(r, text=scanner.fmt_size(it["size"]), width=80,
                          anchor="e", font=_font(12, "bold")).pack(side="right")
         if len(items) > 200:
-            ctk.CTkLabel(parent, text=f"…还有 {len(items)-200} 项",
-                         text_color=MUTED, font=_font(11)).pack(padx=24)
+            rest = items[200:]
+            rvar = tk.BooleanVar(value=False)
+            rsize = sum(it.get("size", 0) for it in rest)
+            self.yellow_vars.append(
+                (rvar, [it["path"] for it in rest], rsize))
+            r = ctk.CTkFrame(parent, fg_color="transparent")
+            r.pack(fill="x", padx=12, pady=2)
+            ctk.CTkCheckBox(r, text="", variable=rvar, width=26,
+                            fg_color=BRAND).pack(side="left")
+            ctk.CTkLabel(
+                r, text=f"…还有 {len(rest)} 项（全选剩余，约 {scanner.fmt_size(rsize)}）",
+                font=_font(12), text_color=MUTED,
+                anchor="w").pack(side="left", fill="x", expand=True)
 
     def _view_files(self, title, files):
         top = ctk.CTkToplevel(self)

@@ -60,7 +60,7 @@ def _trash_win(paths):
         raise OSError(f"SHFileOperation failed: {res}")
 
 
-def safe_delete(paths, total_size=0, progress_cb=None, chunk=200):
+def safe_delete(paths, total_size=0, progress_cb=None, chunk=200, meta=None):
     """
     安全删除。返回 {"deleted": [...], "blocked": [...], "failed": [(path, err)]}
     blocked 为命中红档被拒绝的路径。
@@ -119,6 +119,8 @@ def safe_delete(paths, total_size=0, progress_cb=None, chunk=200):
             _log_dir(), f"clean_{time.strftime('%Y%m%d_%H%M%S')}.json")
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump({"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "title": (meta or {}).get("title", ""),
+                       "size_estimate": total_size,
                        "deleted": deleted, "blocked": blocked,
                        "failed": failed}, f, ensure_ascii=False, indent=2)
     except OSError:
@@ -145,3 +147,26 @@ def total_size(paths):
         except OSError:
             pass
     return total
+
+
+def load_stats():
+    """聚合清理日志：返回 {total_freed, count, last_time}"""
+    total, count, last = 0, 0, ""
+    try:
+        d = _log_dir()
+        files = sorted(os.listdir(d))
+    except OSError:
+        return {"total_freed": 0, "count": 0, "last_time": ""}
+    for fn in files:
+        if not (fn.startswith("clean_") and fn.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(d, fn), encoding="utf-8") as f:
+                j = json.load(f)
+            if j.get("deleted"):
+                count += 1
+                total += int(j.get("size_estimate") or 0)
+                last = max(last, j.get("time", ""))
+        except (OSError, ValueError):
+            pass
+    return {"total_freed": total, "count": count, "last_time": last}

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""主界面 v0.1.2：品牌化 redesign
-- 品牌色取自 logo（青蓝），卡片式布局，信息层级收紧
+"""主界面 v0.3.0：Pro redesign
+- 音乐 App 质感暗黑设计系统：深空背景 + 悬浮卡片 + 青蓝品牌色
+- 侧边栏导航（替代顶部 tab），每页 hero 头
 - 后台线程跑耗时任务，主线程只摆 widget，界面不卡
 """
 import os
@@ -18,19 +19,25 @@ import scanner
 import rules
 import cleaner
 import deepclean
+import startup
 from version import __version__, APP_NAME
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-# ---------------- 品牌 token ----------------
-BRAND = "#1fa3c9"
-BRAND_HOVER = "#1688ab"
-C_GREEN = "#2fbf71"
-C_YELLOW = "#e8a13a"
-C_RED = "#e5605e"
-CARD_BG = ("#eef1f5", "#22262e")
-MUTED = ("gray40", "gray60")
+# ---------------- 设计系统 v2（音乐 App 质感暗黑） ----------------
+BRAND = "#22b8d4"
+BRAND_HOVER = "#1a9ab5"
+C_GREEN = "#34d399"
+C_YELLOW = "#fbbf24"
+C_RED = "#f87171"
+BG = "#0a0d12"          # 深空背景
+SURFACE = "#131924"     # 卡片
+SURFACE2 = "#1b2331"    # 悬浮/嵌套卡片、导航 active
+BORDER = "#232c3f"      # 细边框
+TEXT = "#eef1f6"
+MUTED = "#8b95a9"
+CARD_BG = SURFACE
 
 
 def _font(size=13, weight="normal"):
@@ -51,17 +58,37 @@ def _short(path, n=58):
 
 
 def _card(master, **kw):
-    kw.setdefault("fg_color", CARD_BG)
-    kw.setdefault("corner_radius", 14)
+    kw.setdefault("fg_color", SURFACE)
+    kw.setdefault("corner_radius", 18)
+    kw.setdefault("border_width", 1)
+    kw.setdefault("border_color", BORDER)
     return ctk.CTkFrame(master, **kw)
+
+
+def _hero_btn(parent, text, cmd, primary=False, fg=None, hover=None, width=140):
+    """hero 区按钮：主按钮青蓝，次按钮幽灵"""
+    if primary or fg:
+        b = ctk.CTkButton(parent, text=text, command=cmd, height=40,
+                          corner_radius=12, font=_font(13, "bold"),
+                          fg_color=fg or BRAND, hover_color=hover or BRAND_HOVER,
+                          text_color="white")
+    else:
+        b = ctk.CTkButton(parent, text=text, command=cmd, height=40,
+                          corner_radius=12, font=_font(13),
+                          fg_color="transparent", border_width=1,
+                          border_color=BORDER, text_color=TEXT,
+                          hover_color=SURFACE2)
+    b.pack(side="right", padx=(8, 0))
+    return b
 
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} v{__version__}")
-        self.geometry("1240x800")
-        self.minsize(1060, 660)
+        self.geometry("1280x820")
+        self.minsize(1080, 680)
+        self.configure(fg_color=BG)
         try:
             self.iconbitmap(resource_path("assets/icon.ico"))
         except Exception:
@@ -89,98 +116,150 @@ class App(ctk.CTk):
         self.app_vars = []
         self.hiber = {"exists": False, "size": 0, "is_admin": False}
         self._app_icon_refs = []
+        self.su_entries = []
+        self.su_disabled = []
+        self.su_vars = []
+        self._nav_btns = {}
+        self._current_page = None
 
         self._build_sidebar()
         self._build_main()
         self.refresh_drives()
+        self._show_page("空间分析")
+        self._refresh_stats()
         self.after(120, self._poll_queue)
 
     # ================= 侧边栏 =================
     def _build_sidebar(self):
-        sb = _card(self, corner_radius=0)
-        sb.grid(row=0, column=0, sticky="nsew", padx=(10, 6), pady=10)
+        sb = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=0, width=264,
+                          border_width=0)
+        sb.grid(row=0, column=0, sticky="nsew")
         sb.grid_propagate(False)
-        sb.configure(width=248)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         # 品牌头
         head = ctk.CTkFrame(sb, fg_color="transparent")
-        head.pack(fill="x", padx=14, pady=(16, 6))
+        head.pack(fill="x", padx=18, pady=(22, 8))
         try:
             logo = Image.open(resource_path("assets/logo.png"))
             self._logo_ref = ctk.CTkImage(light_image=logo, dark_image=logo,
-                                          size=(46, 46))
+                                          size=(44, 44))
             ctk.CTkLabel(head, image=self._logo_ref, text="").pack(side="left")
         except Exception:
             ctk.CTkLabel(head, text="🧹", font=_font(30)).pack(side="left")
         tt = ctk.CTkFrame(head, fg_color="transparent")
-        tt.pack(side="left", padx=10)
+        tt.pack(side="left", padx=12)
         ctk.CTkLabel(tt, text=APP_NAME, font=_font(17, "bold"),
-                     anchor="w").pack(anchor="w")
-        ctk.CTkLabel(tt, text=f"DeepClean v{__version__}", font=_font(11),
-                     text_color=MUTED, anchor="w").pack(anchor="w")
+                     text_color=TEXT, anchor="w").pack(anchor="w")
+        ctk.CTkLabel(tt, text=f"v{__version__}  PRO", font=_font(11),
+                     text_color=BRAND, anchor="w").pack(anchor="w")
 
-        ctk.CTkLabel(sb, text="磁盘", font=_font(12, "bold"),
-                     text_color=MUTED, anchor="w").pack(fill="x", padx=16, pady=(10, 4))
-        self.drive_box = ctk.CTkScrollableFrame(sb, fg_color="transparent", height=210)
+        # 导航
+        ctk.CTkLabel(sb, text="功能", font=_font(11, "bold"),
+                     text_color=MUTED, anchor="w").pack(fill="x", padx=20,
+                                                       pady=(14, 6))
+        for name, icon in (("空间分析", "📊"), ("垃圾清理", "🧹"),
+                           ("深度清理", "🔥"), ("启动项", "🚀")):
+            b = ctk.CTkButton(sb, text=f"  {icon}   {name}", anchor="w",
+                              height=44, corner_radius=12, font=_font(14),
+                              fg_color="transparent", text_color=MUTED,
+                              hover_color=SURFACE2,
+                              command=lambda n=name: self._show_page(n))
+            b.pack(fill="x", padx=12, pady=3)
+            self._nav_btns[name] = b
+
+        # 磁盘
+        ctk.CTkLabel(sb, text="磁盘", font=_font(11, "bold"),
+                     text_color=MUTED, anchor="w").pack(fill="x", padx=20,
+                                                       pady=(14, 6))
+        self.drive_box = ctk.CTkScrollableFrame(sb, fg_color="transparent",
+                                                height=190)
         self.drive_box.pack(fill="x", padx=8, pady=0)
 
-        ctk.CTkLabel(sb, text="操作", font=_font(12, "bold"),
-                     text_color=MUTED, anchor="w").pack(fill="x", padx=16, pady=(10, 4))
-        self._side_btn(sb, "🔍  开始扫描", self.start_scan, primary=True)
-        self._side_btn(sb, "⏹  停止扫描", self.stop_scan)
-        self._side_btn(sb, "🧪  扫描垃圾", self.start_junk_scan)
-        ctk.CTkFrame(sb, height=1, fg_color=("gray80", "gray28")).pack(
-            fill="x", padx=16, pady=10)
-        self._side_btn(sb, "⚡  一键清理绿档", self.clean_green,
-                       fg=C_GREEN, hover="#24915a")
-        self._side_btn(sb, "🗑  清理所选", self.clean_selected)
-
-        ctk.CTkLabel(sb, text="删除一律进回收站，可还原\n扫盘为只读，不动你的文件",
+        # 底部统计
+        bot = ctk.CTkFrame(sb, fg_color="transparent")
+        bot.pack(side="bottom", fill="x", padx=18, pady=16)
+        ctk.CTkFrame(bot, height=1, fg_color=BORDER).pack(fill="x", pady=(0, 12))
+        self.stats_label = ctk.CTkLabel(bot, text="累计清理 —", font=_font(12),
+                                        text_color=MUTED, anchor="w")
+        self.stats_label.pack(anchor="w")
+        ctk.CTkLabel(bot, text="删除一律进回收站，可还原",
                      font=_font(11), text_color=MUTED,
-                     justify="center").pack(side="bottom", pady=14)
+                     anchor="w").pack(anchor="w", pady=(4, 0))
 
-    def _side_btn(self, parent, text, cmd, primary=False, fg=None, hover=None):
-        b = ctk.CTkButton(
-            parent, text=text, command=cmd, height=38,
-            corner_radius=10, font=_font(13, "bold" if primary else "normal"),
-            fg_color=fg or (BRAND if primary else ("gray82", "gray26")),
-            hover_color=hover or (BRAND_HOVER if primary else ("gray76", "gray32")),
-            text_color="white" if (primary or fg) else ("black", "white"))
-        b.pack(fill="x", padx=14, pady=4)
-        return b
+    def _refresh_stats(self):
+        try:
+            s = cleaner.load_stats()
+            if s["count"]:
+                self.stats_label.configure(
+                    text=f"✨ 累计清理约 {scanner.fmt_size(s['total_freed'])}"
+                         f" · {s['count']} 次")
+            else:
+                self.stats_label.configure(text="累计清理 —")
+        except Exception:
+            pass
+
+    def _show_page(self, name):
+        self._current_page = name
+        for n, f in self.pages.items():
+            if n == name:
+                f.pack(fill="both", expand=True)
+            else:
+                f.pack_forget()
+        for n, b in self._nav_btns.items():
+            if n == name:
+                b.configure(fg_color=SURFACE2, text_color=TEXT,
+                            font=_font(14, "bold"))
+            else:
+                b.configure(fg_color="transparent", text_color=MUTED,
+                            font=_font(14))
 
     # ================= 主区 =================
+    def _hero(self, parent, title, subtitle):
+        """每页 hero 头，返回右侧按钮容器"""
+        h = ctk.CTkFrame(parent, fg_color="transparent")
+        h.pack(fill="x", pady=(2, 16))
+        t = ctk.CTkFrame(h, fg_color="transparent")
+        t.pack(side="left")
+        ctk.CTkLabel(t, text=title, font=_font(24, "bold"),
+                     text_color=TEXT, anchor="w").pack(anchor="w")
+        ctk.CTkLabel(t, text=subtitle, font=_font(13),
+                     text_color=MUTED, anchor="w").pack(anchor="w", pady=(6, 0))
+        btns = ctk.CTkFrame(h, fg_color="transparent")
+        btns.pack(side="right", anchor="s")
+        return btns
+
     def _build_main(self):
-        main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
-        main.grid_rowconfigure(1, weight=1)
+        main = ctk.CTkFrame(self, fg_color=BG)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_rowconfigure(0, weight=1)
         main.grid_columnconfigure(0, weight=1)
 
-        # 顶部品牌细条
-        ctk.CTkFrame(main, height=3, fg_color=BRAND,
-                     corner_radius=2).grid(row=0, column=0, sticky="ew", pady=(0, 8))
-
-        self.tabs = ctk.CTkTabview(main, corner_radius=14,
-                                   fg_color=CARD_BG)
-        self.tabs.grid(row=1, column=0, sticky="nsew")
-        for name in ("空间分析", "垃圾清理", "深度清理"):
-            self.tabs.add(name)
-        self._build_tab_space(self.tabs.tab("空间分析"))
-        self._build_tab_junk(self.tabs.tab("垃圾清理"))
-        self._build_tab_deep(self.tabs.tab("深度清理"))
+        self.page_wrap = ctk.CTkFrame(main, fg_color="transparent")
+        self.page_wrap.grid(row=0, column=0, sticky="nsew",
+                            padx=24, pady=(20, 8))
+        self.pages = {}
+        for name in ("空间分析", "垃圾清理", "深度清理", "启动项"):
+            f = ctk.CTkFrame(self.page_wrap, fg_color="transparent")
+            self.pages[name] = f
+        self._build_tab_space(self.pages["空间分析"])
+        self._build_tab_junk(self.pages["垃圾清理"])
+        self._build_tab_deep(self.pages["深度清理"])
+        self._build_page_startup(self.pages["启动项"])
 
         # 状态条
-        bar = _card(self, corner_radius=10)
-        bar.grid(row=1, column=0, columnspan=2, sticky="ew",
-                 padx=10, pady=(0, 10))
+        bar = ctk.CTkFrame(main, fg_color=SURFACE, corner_radius=14,
+                           border_width=1, border_color=BORDER)
+        bar.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 16))
         self.status_label = ctk.CTkLabel(bar, text="就绪 — 选择磁盘，开始扫描",
-                                         anchor="w", font=_font(12))
-        self.status_label.pack(side="left", padx=14, pady=8)
-        self.prog = ctk.CTkProgressBar(bar, width=200, height=8,
-                                       progress_color=BRAND)
-        self.prog.pack(side="right", padx=14)
+                                         anchor="w", font=_font(12),
+                                         text_color=MUTED)
+        self.status_label.pack(side="left", padx=16, pady=10)
+        self.prog = ctk.CTkProgressBar(bar, width=220, height=6,
+                                       progress_color=BRAND,
+                                       fg_color=SURFACE2)
+        self.prog.pack(side="right", padx=16)
         self.prog.set(0)
 
     # ================= 磁盘卡片 =================
@@ -226,10 +305,12 @@ class App(ctk.CTk):
 
     # ================= 空间分析 =================
     def _build_tab_space(self, tab):
-        tab.grid_columnconfigure(0, weight=1)
+        btns = self._hero(tab, "📊 空间分析", "看看磁盘空间都去哪了，扫描是只读的")
+        _hero_btn(btns, "开始扫描", self.start_scan, primary=True)
+        _hero_btn(btns, "停止扫描", self.stop_scan)
         self.space_info = ctk.CTkLabel(tab, text="", font=_font(12),
                                        text_color=MUTED, anchor="w")
-        self.space_info.pack(fill="x", padx=12, pady=(4, 2))
+        self.space_info.pack(fill="x", padx=2, pady=(0, 8))
 
         self.space_empty = _card(tab)
         self.space_empty.pack(fill="both", expand=True, padx=10, pady=10)
@@ -340,6 +421,11 @@ class App(ctk.CTk):
 
     # ================= 垃圾清理 =================
     def _build_tab_junk(self, tab):
+        btns = self._hero(tab, "🧹 垃圾清理", "系统缓存与临时文件，绿档可放心一键清理")
+        _hero_btn(btns, "扫描垃圾", self.start_junk_scan, primary=True)
+        _hero_btn(btns, "清理所选", self.clean_selected)
+        _hero_btn(btns, "一键清理绿档", self.clean_green, fg=C_GREEN,
+                  hover="#27a56c")
         self.junk_scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
         self.junk_scroll.pack(fill="both", expand=True, padx=10, pady=8)
         self._junk_hint("点左侧「扫描垃圾」开始分析\n🟢 可放心清理　🟡 请人工确认　🔴 系统关键，已锁定")
@@ -496,8 +582,9 @@ class App(ctk.CTk):
 
     # ================= 深度清理 =================
     def _build_tab_deep(self, tab):
+        self._hero(tab, "🔥 深度清理", "微信专清 / 软件卸载 / 应用缓存 / 休眠文件，高风险区请逐项确认")
         self.deep_scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-        self.deep_scroll.pack(fill="both", expand=True, padx=10, pady=8)
+        self.deep_scroll.pack(fill="both", expand=True)
 
         warn = _card(self.deep_scroll, border_width=1, border_color=C_RED)
         warn.pack(fill="x", padx=4, pady=8)
@@ -720,7 +807,7 @@ class App(ctk.CTk):
         if self._busy:
             return
         self._set_busy(True, "正在深度扫描…")
-        self.tabs.set("深度清理")
+        self._show_page("深度清理")
 
         def work():
             try:
@@ -884,10 +971,154 @@ class App(ctk.CTk):
         def work():
             def prog(done_b, total_b, i, n):
                 self.q.put(("clean_prog", (done_b, total_b, i, n)))
-            result = cleaner.safe_delete(out, total_size=size, progress_cb=prog)
+            result = cleaner.safe_delete(out, total_size=size, progress_cb=prog,
+                                         meta={"title": "深度清理"})
             self.q.put(("clean_done", result))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ================= 启动项 =================
+    def _build_page_startup(self, parent):
+        btns = self._hero(parent, "🚀 启动项管理",
+                          "开机自启的程序越少，开机越快。禁用可一键恢复。")
+        _hero_btn(btns, "扫描启动项", self.start_startup_scan, primary=True)
+
+        self.su_scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.su_scroll.pack(fill="both", expand=True)
+
+        self.su_card = _card(self.su_scroll)
+        self.su_card.pack(fill="x", padx=4, pady=8)
+        ctk.CTkLabel(self.su_card, text="启用中", font=_font(14, "bold"),
+                     anchor="w").pack(anchor="w", padx=16, pady=(12, 4))
+        self.su_body = ctk.CTkFrame(self.su_card, fg_color="transparent")
+        self.su_body.pack(fill="x", padx=8, pady=(0, 6))
+        ctk.CTkLabel(self.su_body, text="点「扫描启动项」",
+                     text_color=MUTED, font=_font(12)).pack(padx=14, pady=8)
+        brow = ctk.CTkFrame(self.su_card, fg_color="transparent")
+        brow.pack(fill="x", padx=16, pady=(0, 12))
+        _hero_btn(brow, "删除所选", self.su_delete_selected, fg=C_RED,
+                  hover="#b23a3a", width=120)
+        _hero_btn(brow, "禁用所选", self.su_disable_selected, width=120)
+
+        self.su_off_card = _card(self.su_scroll)
+        self.su_off_card.pack(fill="x", padx=4, pady=8)
+        ctk.CTkLabel(self.su_off_card, text="已禁用", font=_font(14, "bold"),
+                     anchor="w").pack(anchor="w", padx=16, pady=(12, 4))
+        ctk.CTkLabel(self.su_off_card, text="禁用后在这里，可随时恢复启用",
+                     font=_font(11), text_color=MUTED,
+                     anchor="w").pack(anchor="w", padx=16)
+        self.su_off_body = ctk.CTkFrame(self.su_off_card, fg_color="transparent")
+        self.su_off_body.pack(fill="x", padx=8, pady=(0, 12))
+
+    def start_startup_scan(self):
+        if self._busy:
+            return
+        self._set_busy(True, "正在读取启动项…")
+        self._show_page("启动项")
+
+        def work():
+            try:
+                entries, disabled = startup.list_startup_entries()
+                self.q.put(("su_done", (entries, disabled)))
+            except Exception as e:  # noqa: BLE001
+                self.q.put(("junk_err", str(e)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _fill_startup(self, entries, disabled):
+        self._clear_box(self.su_body)
+        self.su_entries = entries
+        self.su_vars.clear()
+        if not entries:
+            ctk.CTkLabel(self.su_body, text="没有开机启动项，开机很干净 👏",
+                         text_color=MUTED, font=_font(12)).pack(padx=14, pady=8)
+        for e in entries:
+            var = tk.BooleanVar(value=False)
+            self.su_vars.append((var, e))
+            r = ctk.CTkFrame(self.su_body, fg_color="transparent")
+            r.pack(fill="x", padx=14, pady=4)
+            ctk.CTkCheckBox(r, text="", variable=var, width=26,
+                            fg_color=BRAND).pack(side="left")
+            t = ctk.CTkFrame(r, fg_color="transparent")
+            t.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(t, text=e["name"], font=_font(13, "bold"),
+                         text_color=TEXT, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(t, text=_short(e["command"], 64), font=_font(11),
+                         text_color=MUTED, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(r, text=e["location"], font=_font(11),
+                         text_color=MUTED).pack(side="right", padx=(8, 0))
+
+        self._clear_box(self.su_off_body)
+        if not disabled:
+            ctk.CTkLabel(self.su_off_body, text="暂无",
+                         text_color=MUTED, font=_font(12)).pack(padx=14, pady=6)
+        for b in disabled:
+            r = ctk.CTkFrame(self.su_off_body, fg_color="transparent")
+            r.pack(fill="x", padx=14, pady=4)
+            t = ctk.CTkFrame(r, fg_color="transparent")
+            t.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(t, text=b["name"], font=_font(13),
+                         text_color=MUTED, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(t, text=f"{b.get('time', '')} 禁用",
+                         font=_font(11), text_color=MUTED,
+                         anchor="w").pack(anchor="w")
+            ctk.CTkButton(r, text="启用", width=70, height=28, corner_radius=8,
+                          fg_color=C_GREEN, hover_color="#27a56c",
+                          font=_font(12, "bold"),
+                          command=lambda b=b: self._su_enable(b)).pack(side="right")
+
+    def _su_enable(self, b):
+        ok, msg = startup.enable_entry(b)
+        messagebox.showinfo("启动项", msg)
+        if ok:
+            self.start_startup_scan()
+
+    def _su_selected(self):
+        sel = [e for var, e in self.su_vars if var.get()]
+        if not sel:
+            messagebox.showinfo("提示", "还没勾选任何启动项")
+        return sel
+
+    def su_disable_selected(self):
+        if self._busy:
+            return
+        sel = self._su_selected()
+        if not sel:
+            return
+        ok = messagebox.askyesno(
+            "禁用启动项",
+            f"将禁用 {len(sel)} 个开机启动项（可随时恢复启用）。继续吗？")
+        if not ok:
+            return
+        fails = []
+        for e in sel:
+            ok2, msg = startup.disable_entry(e)
+            if not ok2:
+                fails.append(f"{e['name']}: {msg}")
+        if fails:
+            messagebox.showwarning("部分失败", "\n".join(fails[:10]))
+        self.start_startup_scan()
+
+    def su_delete_selected(self):
+        if self._busy:
+            return
+        sel = self._su_selected()
+        if not sel:
+            return
+        ok = messagebox.askyesno(
+            "删除启动项", f"将删除 {len(sel)} 个开机启动项（备份保留，可手动找回）。"
+                          "\n注意：这只删除启动项，不会卸载软件本身。继续吗？",
+            icon="warning")
+        if not ok:
+            return
+        fails = []
+        for e in sel:
+            ok2, msg = startup.delete_entry(e)
+            if not ok2:
+                fails.append(f"{e['name']}: {msg}")
+        if fails:
+            messagebox.showwarning("部分失败", "\n".join(fails[:10]))
+        self.start_startup_scan()
 
     # ================= 后台任务 =================
     def _set_busy(self, busy, text=""):
@@ -905,7 +1136,7 @@ class App(ctk.CTk):
             return
         root = self.selected_drive["path"]
         self._set_busy(True, f"正在扫描 {root} …")
-        self.tabs.set("空间分析")
+        self._show_page("空间分析")
         cancel = threading.Event()
         self._scan_cancel = cancel
 
@@ -930,7 +1161,7 @@ class App(ctk.CTk):
         if self._busy:
             return
         self._set_busy(True, "正在分析垃圾…")
-        self.tabs.set("垃圾清理")
+        self._show_page("垃圾清理")
 
         def work():
             try:
@@ -1006,6 +1237,10 @@ class App(ctk.CTk):
                 elif kind == "apps_done":
                     self._set_busy(False, "已安装软件读取完成")
                     self._fill_apps(msg[1])
+                elif kind == "su_done":
+                    entries, disabled = msg[1]
+                    self._set_busy(False, f"找到 {len(entries)} 个启动项")
+                    self._fill_startup(entries, disabled)
                 elif kind == "uninstall_done":
                     results = msg[1]
                     self._set_busy(False, "卸载完成")
@@ -1035,6 +1270,7 @@ class App(ctk.CTk):
                     result = msg[1]
                     self.prog.configure(mode="indeterminate")
                     self._set_busy(False, "清理完成")
+                    self._refresh_stats()
                     n_del = len(result["deleted"])
                     n_block = len(result["blocked"])
                     n_fail = len(result["failed"])
@@ -1102,7 +1338,8 @@ class App(ctk.CTk):
             def prog(done_b, total_b, i, n):
                 self.q.put(("clean_prog", (done_b, total_b, i, n)))
             result = cleaner.safe_delete(paths, total_size=total_size,
-                                         progress_cb=prog)
+                                         progress_cb=prog,
+                                         meta={"title": title})
             self.q.put(("clean_done", result))
 
         threading.Thread(target=work, daemon=True).start()

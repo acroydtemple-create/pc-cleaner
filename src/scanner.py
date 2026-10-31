@@ -30,11 +30,6 @@ for _cat, _exts in CATEGORIES.items():
     for _e in _exts:
         EXT_TO_CAT[_e] = _cat
 
-# 可预览的图片 / 视频（PIL 与 ffmpeg 能处理的常见格式）
-PREVIEW_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-                      ".tiff", ".tif", ".ico"}
-PREVIEW_VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv",
-                      ".webm", ".m4v", ".mpg", ".mpeg", ".ts", ".3gp"}
 
 # 扫描时直接跳过的目录（名，小写比对）
 SKIP_DIR_NAMES = {
@@ -101,13 +96,11 @@ def _new_frame(path):
     return {"path": path, "it": None, "files": 0, "child_sum": 0}
 
 
-def scan_drive(root, progress_cb=None, cancel=None,
-               collect_media=True, max_media_images=8000,
-               max_media_videos=3000, top_n_files=200):
+def scan_drive(root, progress_cb=None, cancel=None, top_n_files=200):
     """
     递归扫描 root。progress_cb(dirs_done, current_path)。
     cancel 为 threading.Event（或返回 bool 的 callable），置位时抛 ScanCancelled。
-    返回 dict: categories / dir_totals / top_dirs / top_files / images / videos / stats
+    返回 dict: categories / dir_totals / top_dirs / top_files / stats
     """
     def _cancelled():
         if cancel is None:
@@ -118,7 +111,6 @@ def scan_drive(root, progress_cb=None, cancel=None,
     cat_count = {c: 0 for c in list(CATEGORIES) + ["其他"]}
     dir_totals = {}
     file_heap = []          # (-size, path) 最小堆，保留 top_n
-    images, videos = [], []
     dirs_done = 0
     files_done = 0
     t0 = time.time()
@@ -182,13 +174,6 @@ def scan_drive(root, progress_cb=None, cancel=None,
                 cat_size[cat] += sz
                 cat_count[cat] += 1
                 push_file(sz, entry.path)
-                if collect_media:
-                    if ext in PREVIEW_IMAGE_EXTS and len(images) < max_media_images:
-                        images.append({"path": entry.path, "size": sz,
-                                       "mtime": st.st_mtime})
-                    elif ext in PREVIEW_VIDEO_EXTS and len(videos) < max_media_videos:
-                        videos.append({"path": entry.path, "size": sz,
-                                       "mtime": st.st_mtime})
         except OSError:
             continue
 
@@ -210,8 +195,6 @@ def scan_drive(root, progress_cb=None, cancel=None,
         "top_dirs": [{"path": p, "size": s} for p, s in top_dirs[:30]],
         "top_children": [{"path": p, "size": s} for p, s in children[:30]],
         "top_files": [{"path": p, "size": s} for s, p in top_files[:100]],
-        "images": images,
-        "videos": videos,
         "stats": {"dirs": dirs_done, "files": files_done,
                   "seconds": round(time.time() - t0, 1)},
     }

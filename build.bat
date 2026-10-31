@@ -8,7 +8,6 @@ pyinstaller --noconfirm --onefile --windowed ^
   --icon assets/icon.ico ^
   --add-data "assets/logo.png;assets" ^
   --collect-all customtkinter ^
-  --collect-all imageio_ffmpeg ^
   src\main.py
 echo.
 echo 打包完成: dist\深度清理工具.exe

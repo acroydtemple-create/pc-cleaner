@@ -24,7 +24,6 @@ jobs:
           --icon assets/icon.ico
           --add-data "assets/logo.png;assets"
           --collect-all customtkinter
-          --collect-all imageio_ffmpeg
           src/main.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4

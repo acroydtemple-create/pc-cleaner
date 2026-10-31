@@ -17,7 +17,6 @@ from PIL import Image
 import scanner
 import rules
 import cleaner
-import previewer
 from version import __version__, APP_NAME
 
 ctk.set_appearance_mode("dark")
@@ -76,12 +75,7 @@ class App(ctk.CTk):
         self.yellow_data = {"downloads": [], "installers": [], "dups": []}
         self.green_vars = []
         self.yellow_vars = []
-        self.img_items = []
-        self.vid_items = []
-        self._img_widgets = []
-        self._vid_widgets = []
         self._busy = False
-        self._media_stop = threading.Event()
         self._scan_cancel = None
         self._last_prog_ui = 0
         self._logo_ref = None
@@ -161,12 +155,10 @@ class App(ctk.CTk):
         self.tabs = ctk.CTkTabview(main, corner_radius=14,
                                    fg_color=CARD_BG)
         self.tabs.grid(row=1, column=0, sticky="nsew")
-        for name in ("空间分析", "垃圾清理", "图片浏览", "视频浏览"):
+        for name in ("空间分析", "垃圾清理"):
             self.tabs.add(name)
         self._build_tab_space(self.tabs.tab("空间分析"))
         self._build_tab_junk(self.tabs.tab("垃圾清理"))
-        self._build_tab_images(self.tabs.tab("图片浏览"))
-        self._build_tab_videos(self.tabs.tab("视频浏览"))
 
         # 状态条
         bar = _card(self, corner_radius=10)
@@ -466,116 +458,6 @@ class App(ctk.CTk):
             ctk.CTkLabel(box, text=f"…还有 {len(files)-2000} 项",
                          text_color=MUTED).pack()
 
-    # ================= 图片 / 视频 =================
-    def _build_tab_images(self, tab):
-        self.img_tip = ctk.CTkLabel(tab, text="扫盘后这里会列出全盘图片",
-                                    text_color=MUTED, font=_font(12))
-        self.img_tip.pack(pady=6)
-        self.img_grid = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-        self.img_grid.pack(fill="both", expand=True, padx=10, pady=4)
-
-    def _build_tab_videos(self, tab):
-        self.vid_tip = ctk.CTkLabel(tab, text="扫盘后这里会列出全盘视频封面",
-                                    text_color=MUTED, font=_font(12))
-        self.vid_tip.pack(pady=6)
-        self.vid_grid = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-        self.vid_grid.pack(fill="both", expand=True, padx=10, pady=4)
-
-    def _fill_media(self):
-        self._media_stop.set()
-        for w in self._img_widgets + self._vid_widgets:
-            w.destroy()
-        self._img_widgets.clear()
-        self._vid_widgets.clear()
-        self.img_items = sorted(self.scan_result["images"], key=lambda x: -x["size"])
-        self.vid_items = sorted(self.scan_result["videos"], key=lambda x: -x["size"])
-        self.img_tip.configure(
-            text=f"共 {len(self.img_items)} 张图片（按体积排序），缩略图后台加载中…")
-        self.vid_tip.configure(
-            text=f"共 {len(self.vid_items)} 个视频（按体积排序），封面后台加载中…")
-        self._media_stop = threading.Event()
-        threading.Thread(target=self._media_worker, daemon=True).start()
-
-    def _media_worker(self):
-        stop = self._media_stop
-        for idx, it in enumerate(self.img_items):
-            if stop.is_set():
-                return
-            while self.q.qsize() > 150 and not stop.is_set():
-                time.sleep(0.05)
-            th = previewer.image_thumbnail(it["path"])
-            self.q.put(("img_cell", idx, th, it))
-        for idx, it in enumerate(self.vid_items):
-            if stop.is_set():
-                return
-            while self.q.qsize() > 150 and not stop.is_set():
-                time.sleep(0.05)
-            cv = previewer.video_cover(it["path"])
-            self.q.put(("vid_cell", idx, cv, it))
-        self.q.put(("media_done", None))
-
-    def _add_img_cell(self, idx, th, it):
-        cols = 4
-        cell = _card(self.img_grid, width=200, height=238, corner_radius=12)
-        cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
-        cell.grid_propagate(False)
-        if th:
-            img = ctk.CTkImage(light_image=th, dark_image=th, size=(184, 170))
-            lbl = ctk.CTkLabel(cell, image=img, text="", corner_radius=8)
-            lbl.image = img
-        else:
-            lbl = ctk.CTkLabel(cell, text="🖼️\n无法预览", height=170)
-        lbl.pack(padx=8, pady=(8, 2))
-        lbl.bind("<Button-1>", lambda e, it=it: self._preview_image(it))
-        name = os.path.basename(it["path"])
-        ctk.CTkLabel(cell, text=_short(name, 22), font=_font(11)).pack()
-        ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
-                     font=_font(11), text_color=MUTED).pack(pady=(0, 8))
-        self._img_widgets.append(cell)
-
-    def _add_vid_cell(self, idx, cv, it):
-        cols = 3
-        cell = _card(self.vid_grid, width=300, height=252, corner_radius=12)
-        cell.grid(row=idx // cols, column=idx % cols, padx=6, pady=6)
-        cell.grid_propagate(False)
-        if cv:
-            img = ctk.CTkImage(light_image=cv, dark_image=cv, size=(284, 160))
-            lbl = ctk.CTkLabel(cell, image=img, text="", corner_radius=8)
-            lbl.image = img
-        else:
-            lbl = ctk.CTkLabel(cell, text="🎬\n封面提取失败", height=160)
-        lbl.pack(padx=8, pady=(8, 2))
-        lbl.bind("<Double-Button-1>", lambda e, it=it: self._play_video(it))
-        name = os.path.basename(it["path"])
-        ctk.CTkLabel(cell, text=_short(name, 32), font=_font(11)).pack()
-        ctk.CTkLabel(cell, text=scanner.fmt_size(it["size"]),
-                     font=_font(11), text_color=MUTED).pack(pady=(0, 8))
-        self._vid_widgets.append(cell)
-
-    def _preview_image(self, it):
-        top = ctk.CTkToplevel(self)
-        top.title(os.path.basename(it["path"]))
-        top.geometry("900x700")
-        im = previewer.image_full(it["path"])
-        if im:
-            img = ctk.CTkImage(light_image=im, dark_image=im,
-                               size=(min(im.width, 860), min(im.height, 600)))
-            lbl = ctk.CTkLabel(top, image=img, text="")
-            lbl.image = img
-            lbl.pack(pady=10)
-        ctk.CTkLabel(top, text=f"{it['path']}\n{scanner.fmt_size(it['size'])}",
-                     font=_font(11), text_color=MUTED).pack(pady=6)
-
-    def _play_video(self, it):
-        try:
-            if os.name == "nt":
-                os.startfile(it["path"])  # noqa: S606
-            else:
-                import subprocess
-                subprocess.Popen(["xdg-open", it["path"]])
-        except Exception as e:  # noqa: BLE001
-            messagebox.showerror("打不开", str(e))
-
     # ================= 后台任务 =================
     def _set_busy(self, busy, text=""):
         self._busy = busy
@@ -636,30 +518,15 @@ class App(ctk.CTk):
 
     def _poll_queue(self):
         try:
-            media_budget = 8  # 每 tick 最多摆 8 张卡片，剩下的下轮继续，界面不卡死
             while True:
                 msg = self.q.get_nowait()
                 kind = msg[0]
-                if kind in ("img_cell", "vid_cell"):
-                    if media_budget <= 0:
-                        self.q.put(msg)  # 放回队尾，下 tick 继续
-                        break
-                    media_budget -= 1
                 if kind == "scan_prog":
                     _n, p = msg[1], msg[2]
                     now = time.time()
                     if now - self._last_prog_ui > 0.3:
                         self._last_prog_ui = now
                         self.status_label.configure(text=f"扫描中：{_short(p)}")
-                elif kind == "img_cell":
-                    self._add_img_cell(msg[1], msg[2], msg[3])
-                elif kind == "vid_cell":
-                    self._add_vid_cell(msg[1], msg[2], msg[3])
-                elif kind == "media_done":
-                    self.img_tip.configure(
-                        text=f"共 {len(self.img_items)} 张图片（按体积排序），点开放大")
-                    self.vid_tip.configure(
-                        text=f"共 {len(self.vid_items)} 个视频（按体积排序），双击用系统播放器打开")
                 elif kind == "scan_done":
                     self._scan_cancel = None
                     res = msg[1]
@@ -668,7 +535,6 @@ class App(ctk.CTk):
                     self._set_busy(False,
                                    f"扫描完成：{st['files']:,} 个文件 / {st['dirs']:,} 个目录，用时 {st['seconds']}s")
                     self._fill_space(res)
-                    self._fill_media()
                     self._set_space_info()
                     messagebox.showinfo("扫描完成",
                                         f"共 {st['files']:,} 个文件，{st['dirs']:,} 个目录，"

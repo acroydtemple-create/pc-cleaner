@@ -159,8 +159,7 @@ class App(ctk.CTk):
                      corner_radius=2).grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
         self.tabs = ctk.CTkTabview(main, corner_radius=14,
-                                   fg_color=CARD_BG,
-                                   segmented_button_fg_color="transparent")
+                                   fg_color=CARD_BG)
         self.tabs.grid(row=1, column=0, sticky="nsew")
         for name in ("空间分析", "垃圾清理", "图片浏览", "视频浏览"):
             self.tabs.add(name)

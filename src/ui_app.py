@@ -409,8 +409,8 @@ class App(ctk.CTk):
             for grp in dups[:60]:
                 var = tk.BooleanVar(value=False)
                 _keep, *rest = grp["files"]
-                self.yellow_vars.append((var, rest))
                 save = grp["size"] * (len(grp["files"]) - 1)
+                self.yellow_vars.append((var, rest, save))
                 r = ctk.CTkFrame(y, fg_color="transparent")
                 r.pack(fill="x", padx=12, pady=2)
                 ctk.CTkCheckBox(r, text="", variable=var, width=26,
@@ -443,7 +443,7 @@ class App(ctk.CTk):
                      anchor="w").pack(fill="x", padx=24, pady=(8, 2))
         for it in items[:200]:
             var = tk.BooleanVar(value=False)
-            self.yellow_vars.append((var, [it["path"]]))
+            self.yellow_vars.append((var, [it["path"]], it.get("size", 0)))
             r = ctk.CTkFrame(parent, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
             ctk.CTkCheckBox(r, text="", variable=var, width=26,
@@ -626,7 +626,7 @@ class App(ctk.CTk):
             return
         for it in items:
             var = tk.BooleanVar(value=False)
-            self.wechat_vars.append((var, [it["path"]]))
+            self.wechat_vars.append((var, [it["path"]], it["size"]))
             r = ctk.CTkFrame(self.wx_body, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=3)
             ctk.CTkCheckBox(r, text="", variable=var, width=26,
@@ -652,7 +652,7 @@ class App(ctk.CTk):
             return
         for c in caches:
             var = tk.BooleanVar(value=False)
-            self.appcache_vars.append((var, c["paths"]))
+            self.appcache_vars.append((var, c["paths"], c["size"]))
             r = ctk.CTkFrame(self.cache_body, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=3)
             ctk.CTkCheckBox(r, text="", variable=var, width=26,
@@ -829,13 +829,15 @@ class App(ctk.CTk):
     def deep_clean_selected(self):
         if self._busy:
             return
-        paths = []
-        for var, plist in self.wechat_vars:
+        paths, size = [], 0
+        for var, plist, sz in self.wechat_vars:
             if var.get():
                 paths.extend(plist)
-        for var, plist in self.appcache_vars:
+                size += sz
+        for var, plist, sz in self.appcache_vars:
             if var.get():
                 paths.extend(plist)
+                size += sz
         seen, out = set(), []
         for p in paths:
             if p not in seen:
@@ -844,7 +846,6 @@ class App(ctk.CTk):
         if not out:
             messagebox.showinfo("提示", "还没勾选任何深度清理项")
             return
-        size = cleaner.total_size(out)
         ok = messagebox.askyesno(
             "深度清理确认",
             f"⚠️ 即将把 {len(out)} 项（约 {scanner.fmt_size(size)}）移入回收站。\n"
@@ -856,7 +857,9 @@ class App(ctk.CTk):
         self._set_busy(True, "正在深度清理…")
 
         def work():
-            result = cleaner.safe_delete(out)
+            def prog(done_b, total_b, i, n):
+                self.q.put(("clean_prog", (done_b, total_b, i, n)))
+            result = cleaner.safe_delete(out, total_size=size, progress_cb=prog)
             self.q.put(("clean_done", result))
 
         threading.Thread(target=work, daemon=True).start()
@@ -993,8 +996,19 @@ class App(ctk.CTk):
                     self._set_busy(False, "休眠已关闭" if ok else "操作失败")
                     self._fill_sys()
                     messagebox.showinfo("休眠", info)
+                elif kind == "clean_prog":
+                    done_b, total_b, i, n = msg[1]
+                    if total_b:
+                        self.prog.configure(mode="determinate")
+                        self.prog.set(max(0.0, min(1.0, done_b / total_b)))
+                        self.status_label.configure(
+                            text=f"正在清理 {i}/{n}…已清理约 "
+                                 f"{scanner.fmt_size(done_b)} / {scanner.fmt_size(total_b)}")
+                    else:
+                        self.status_label.configure(text=f"正在清理 {i}/{n}…")
                 elif kind == "clean_done":
                     result = msg[1]
+                    self.prog.configure(mode="indeterminate")
                     self._set_busy(False, "清理完成")
                     n_del = len(result["deleted"])
                     n_block = len(result["blocked"])
@@ -1012,19 +1026,21 @@ class App(ctk.CTk):
 
     # ================= 清理 =================
     def _collect_checked(self):
-        paths = []
+        paths, size = [], 0
         for var, rule in self.green_vars:
             if var.get():
                 paths.extend(rule["files"])
-        for var, plist in self.yellow_vars:
+                size += rule["size"]
+        for var, plist, sz in self.yellow_vars:
             if var.get():
                 paths.extend(plist)
+                size += sz
         seen, out = set(), []
         for p in paths:
             if p not in seen:
                 seen.add(p)
                 out.append(p)
-        return out
+        return out, size
 
     def clean_green(self):
         if self._busy:
@@ -1032,32 +1048,36 @@ class App(ctk.CTk):
         if not self.green_data:
             messagebox.showinfo("提示", "还没有扫描结果，先点「扫描垃圾」")
             return
-        paths = []
+        paths, size = [], 0
         for _var, rule in self.green_vars:
             paths.extend(rule["files"])
-        self._do_clean(paths, "一键清理绿档")
+            size += rule["size"]
+        self._do_clean(paths, "一键清理绿档", size)
 
     def clean_selected(self):
         if self._busy:
             return
-        paths = self._collect_checked()
+        paths, size = self._collect_checked()
         if not paths:
             messagebox.showinfo("提示", "还没勾选任何可清理项")
             return
-        self._do_clean(paths, "清理所选")
+        self._do_clean(paths, "清理所选", size)
 
-    def _do_clean(self, paths, title):
-        size = cleaner.total_size(paths)
+    def _do_clean(self, paths, title, total_size=0):
+        # total_size 用扫描时的已知值，不再全盘重算（之前这里是慢的元凶之一）
         ok = messagebox.askyesno(
             title,
-            f"即将把 {len(paths):,} 项（约 {scanner.fmt_size(size)}）移入回收站。\n"
+            f"即将把 {len(paths):,} 项（约 {scanner.fmt_size(total_size)}）移入回收站。\n"
             "回收站可还原，但仍请确认。\n\n确定继续吗？")
         if not ok:
             return
         self._set_busy(True, "正在清理…")
 
         def work():
-            result = cleaner.safe_delete(paths)
+            def prog(done_b, total_b, i, n):
+                self.q.put(("clean_prog", (done_b, total_b, i, n)))
+            result = cleaner.safe_delete(paths, total_size=total_size,
+                                         progress_cb=prog)
             self.q.put(("clean_done", result))
 
         threading.Thread(target=work, daemon=True).start()
